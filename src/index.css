@@ -1,265 +1,436 @@
-/* General styling */
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.6; /* Increased line height for better readability */
-  font-weight: 400;
-  color-scheme: light; /* Force light mode for better readability */
-  color: #212529; /* Dark text */
-  background-color: #f8f9fa; /* Light background */
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #007bff; /* Bootstrap primary color */
-  text-decoration: none;
-}
-a:hover {
-  color: #0056b3;
-  text-decoration: underline;
-}
-
+/* General Body and Font Styles */
 body {
   margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f4f7f6; /* Very light grey background */
+  color: #333; /* Darker text for readability */
+  line-height: 1.6;
+}
+
+/* Main App Container */
+.App {
   display: flex;
-  flex-direction: column; /* Align items vertically */
-  align-items: center;
-  min-width: 320px;
+  flex-direction: column;
   min-height: 100vh;
-  padding: 20px; /* Add some padding around the body */
-  box-sizing: border-box; /* Ensure padding is inside the body */
+  align-items: center;
+  padding: 20px;
+  box-sizing: border-box; /* Include padding in element's total width and height */
 }
 
-h1 {
-  font-size: 2.5em; /* Slightly smaller and more modern */
-  line-height: 1.2;
-  margin-bottom: 20px;
-  color: #343a40; /* Darker heading color */
-}
-
-h2 {
-  font-size: 1.8em;
-  margin-top: 25px;
-  margin-bottom: 15px;
-  color: #343a40;
-}
-
-h3 {
-  font-size: 1.4em;
-  margin-top: 20px;
-  margin-bottom: 10px;
-  color: #495057;
-}
-
-p {
-  margin-bottom: 1rem;
-  color: #495057;
-}
-
-button {
-  border-radius: 5px;
-  border: 1px solid #ced4da; /* Light grey border */
-  padding: 0.7em 1.5em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #007bff; /* Primary button color */
-  color: white;
-  cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-}
-button:hover {
-  background-color: #0056b3;
-  border-color: #0056b3;
-}
-button:focus,
-button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.5); /* Bootstrap focus style */
-}
-
-/* Custom styles for your dApp */
+/* Header Styling */
 .App-header {
+  background-color: #ffffff; /* White background for header */
+  border-radius: 12px;
+  padding: 30px 40px;
+  width: 100%;
+  max-width: 900px;
   text-align: center;
-  padding: 30px;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
   margin-bottom: 30px;
-  max-width: 700px;
-  background-color: #fff; /* White header background */
+}
+
+.App-header h1 {
+  font-size: 2.2em;
+  color: #2c3e50; /* Dark blue for main title */
+  margin-bottom: 25px;
+}
+
+/* Connection Info Box */
+.connection-info {
+  background-color: #e8f5e9; /* Light green background */
+  border: 1px solid #c8e6c9; /* Slightly darker green border */
   border-radius: 8px;
+  padding: 15px 20px;
+  margin-top: 20px;
+  text-align: left;
+}
+
+.connection-info p {
+  margin: 8px 0;
+  font-size: 0.95em;
+  color: #388e3c; /* Dark green text */
+}
+
+.connection-info strong {
+  color: #1b5e20; /* Even darker green for emphasis */
+  font-weight: 600;
+}
+
+.owner-message {
+  font-weight: bold;
+  color: #d32f2f; /* Red for owner message */
+  margin-top: 15px;
+}
+
+/* Connect Wallet Button */
+.App-header button {
+  background-color: #4CAF50; /* Green */
+  color: white;
+  padding: 12px 25px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1em;
+  cursor: pointer;
+  transition: background-color 0.3s ease, transform 0.2s ease;
+  margin-top: 20px;
+}
+
+.App-header button:hover {
+  background-color: #45a049;
+  transform: translateY(-2px);
+}
+
+.App-header button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Messages (Success/Error) */
+.message {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+  padding: 12px 20px;
+  border-radius: 8px;
+  margin-top: 15px;
+  width: 100%;
+  max-width: 900px;
+  box-sizing: border-box;
+  text-align: center;
+  font-weight: 500;
+}
+
+.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+  padding: 12px 20px;
+  border-radius: 8px;
+  margin-top: 15px;
+  width: 100%;
+  max-width: 900px;
+  box-sizing: border-box;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* Navigation Tabs */
+.tabs {
+  display: flex;
+  flex-wrap: wrap; /* Allow tabs to wrap to next line on smaller screens */
+  justify-content: center;
+  width: 100%;
+  max-width: 900px;
+  margin-bottom: 30px;
+  background-color: #e0f2f7; /* Light blue for tab background */
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+}
+
+.tabs button {
+  background-color: transparent;
+  color: #2196F3; /* Blue text for inactive tabs */
+  border: none;
+  padding: 12px 20px;
+  font-size: 1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  border-radius: 8px;
+  margin: 5px; /* Spacing between tabs */
+}
+
+.tabs button:hover {
+  background-color: #bbdefb; /* Lighter blue on hover */
+}
+
+.tabs button.active { /* You'd need to add 'active' class in JS if currentTab matches */
+  background-color: #2196F3; /* Darker blue for active tab */
+  color: white;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.error-message {
-  color: #dc3545; /* Bootstrap danger color */
-  font-weight: bold;
-  margin-top: 10px;
+/* Main Content Area */
+.content {
+  background-color: #ffffff; /* White background for content sections */
+  border-radius: 12px;
+  padding: 30px 40px;
+  width: 100%;
+  max-width: 900px;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
+  margin-bottom: 30px;
 }
 
-.info-message {
-  color: #17a2b8; /* Bootstrap info color */
-  font-weight: bold;
-  margin-top: 10px;
+.content h2 {
+  font-size: 1.8em;
+  color: #2c3e50;
+  margin-bottom: 25px;
+  text-align: center;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 15px;
 }
 
-.connect-button {
-  padding: 12px 24px;
+/* Section Specific Styles */
+.home-section p {
+  text-align: center;
   font-size: 1.1em;
-  cursor: pointer;
-  background-color: #28a745; /* Bootstrap success color */
-  color: white;
-  border: none;
-  border-radius: 5px;
-  transition: background-color 0.2s ease;
-}
-
-.connect-button:hover {
-  background-color: #1e7e34;
-}
-
-.section-box {
-  border: 1px solid #ced4da; /* Light grey border */
-  padding: 25px;
-  margin-bottom: 20px;
-  border-radius: 8px;
-  background-color: #e9ecef; /* Light grey background */
-  text-align: left;
-  width: 100%; /* Make section boxes take full width within the header */
-  box-sizing: border-box;
-}
-
-.input-field {
-  width: calc(100% - 22px); /* Adjust for padding and border */
-  padding: 10px;
-  margin-bottom: 15px;
-  border-radius: 4px;
-  border: 1px solid #ced4da; /* Light grey border */
-  background-color: #fff; /* White input background */
-  color: #495057; /* Dark input text */
-  box-sizing: border-box;
-}
-
-.action-button {
-  background-color: #007bff; /* Primary action button color */
-  color: white;
-  border: none;
-  padding: 10px 15px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-  margin-top: 10px;
-}
-
-.action-button:hover {
-  background-color: #0056b3;
-}
-
-/* Adjustments for owner status */
-.owner-indicator {
-  color: #28a745; /* Green for owner */
-  font-weight: bold;
-  margin-top: 5px;
-}
-
-.not-owner-indicator {
-  color: #dc3545; /* Red for not owner */
-  font-weight: bold;
-  margin-top: 5px;
-}
-
-.institution-list {
-  list-style-type: none; /* Remove bullet points */
-  padding: 0;
-}
-
-.institution-item {
-  background-color: #f1f3f5; /* Slightly darker background for list items */
-  border: 1px solid #dee2e6; /* Light border */
-  border-radius: 5px;
-  padding: 15px;
+  color: #555;
   margin-bottom: 10px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
-.institution-item p {
-  margin: 5px 0; /* Adjust spacing within list items */
-  color: #343a40; /* Ensure text is readable */
+.home-section p strong {
+    color: #4CAF50;
 }
 
-.institution-item p strong {
-  color: #007bff; /* Highlight labels */
-}
-
-.input-label {
-  display: block; /* Make label appear on its own line */
-  margin-bottom: 5px;
-  color: #495057; /* Darker text for labels */
-  font-size: 0.9em;
-  font-weight: bold;
-  text-align: left;
-}
-
-/* Tab Styling */
-.tabs-container {
+/* Form Layouts (applies to register, store, search, revoke, verify) */
+.register-institution-section,
+.store-credential-section,
+.search-credential-section,
+.revoke-credential-section,
+.verify-credential-section,
+.view-institution-section {
   display: flex;
-  justify-content: center;
-  flex-wrap: wrap; /* Allow tabs to wrap on smaller screens */
-  margin-top: 20px;
-  margin-bottom: 20px;
-  border-bottom: 2px solid #e9ecef;
-  width: 100%;
+  flex-direction: column;
+  gap: 15px; /* Spacing between form elements */
 }
 
-.tab-button {
-  background-color: #f1f3f5;
-  color: #495057;
+/* Input Fields and Textareas */
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="password"], /* If you ever add password fields */
+textarea {
+  width: calc(100% - 24px); /* Full width minus padding */
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 1em;
+  color: #333;
+  box-sizing: border-box;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+textarea:focus {
+  border-color: #2196F3; /* Blue border on focus */
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.2); /* Light blue glow on focus */
+  outline: none;
+}
+
+/* Labels for date inputs */
+label {
+    font-weight: 500;
+    color: #555;
+    margin-top: 5px; /* Add some space above label */
+}
+
+/* Buttons within sections (Register, Store, Search, Revoke, Verify) */
+.register-institution-section button,
+.store-credential-section button:not(.file-upload-section button), /* Exclude Pinata upload button */
+.search-credential-section button,
+.revoke-credential-section button,
+.verify-credential-section button,
+.view-institution-section button {
+  background-color: #007bff; /* Primary blue */
+  color: white;
+  padding: 12px 25px;
   border: none;
-  border-radius: 5px 5px 0 0;
-  padding: 10px 15px; /* Slightly adjusted padding for more tabs */
+  border-radius: 8px;
+  font-size: 1.05em;
   cursor: pointer;
-  font-weight: bold;
-  transition: background-color 0.3s ease, color 0.3s ease;
-  margin: 0 2px;
-  border-bottom: 2px solid transparent;
-  flex-shrink: 0; /* Prevent buttons from shrinking too much */
+  transition: background-color 0.3s ease, transform 0.2s ease;
+  margin-top: 10px;
+  align-self: flex-start; /* Align button to the start of the column */
 }
 
-.tab-button:hover {
-  background-color: #e2e6ea;
-  color: #212529;
+.register-institution-section button:hover,
+.store-credential-section button:not(.file-upload-section button):hover,
+.search-credential-section button:hover,
+.revoke-credential-section button:hover,
+.verify-credential-section button:hover,
+.view-institution-section button:hover {
+  background-color: #0056b3;
+  transform: translateY(-2px);
 }
 
-.tab-button.active {
-  background-color: #fff;
-  color: #007bff;
-  border-bottom: 2px solid #007bff;
-  box-shadow: 0 -2px 5px rgba(0,0,0,0.05);
-  z-index: 1;
+.register-institution-section button:disabled,
+.store-credential-section button:disabled,
+.search-credential-section button:disabled,
+.revoke-credential-section button:disabled,
+.verify-credential-section button:disabled,
+.view-institution-section button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+  transform: none;
 }
 
-.tab-content {
-  width: 100%;
-  padding-top: 10px;
+/* File Upload Section */
+.file-upload-section {
+  border: 1px dashed #a0a0a0;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 15px 0;
+  text-align: center;
+  background-color: #fcfcfc;
 }
 
-/* NEW: Styles for Search/Verify Results */
-.search-result, .verify-result {
-  background-color: #f1f3f5;
-  border: 1px solid #dee2e6;
-  border-radius: 5px;
-  padding: 15px;
-  margin-top: 20px;
-  text-align: left;
-}
-
-.search-result h4, .verify-result h4 {
+.file-upload-section h3 {
+  color: #555;
   margin-top: 0;
-  margin-bottom: 10px;
-  color: #007bff; /* Primary color for result headings */
+  margin-bottom: 15px;
+  font-size: 1.1em;
 }
 
-.search-result p, .verify-result p {
-  margin: 5px 0;
+.file-upload-section input[type="file"] {
+  display: block; /* Make it take its own line */
+  margin: 0 auto 15px auto; /* Center it and add space below */
+  width: auto; /* Allow natural width */
+  padding: 0; /* Remove default padding for file input */
+}
+
+.file-upload-section p {
+  font-size: 0.9em;
+  color: #777;
+  margin: 8px 0;
+}
+
+.file-upload-message {
+  font-weight: 500;
+  color: #007bff; /* Blue for file upload messages */
+}
+
+.file-upload-section button {
+    background-color: #6c757d; /* Grey for Pinata upload button */
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95em;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    margin-top: 15px;
+    align-self: center; /* Center the button in its container */
+}
+
+.file-upload-section button:hover {
+    background-color: #5a6268;
+}
+
+.file-upload-section button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+
+/* Credential Details / Institution Details Display */
+.credential-details,
+.institution-details {
+  background-color: #e0f7fa; /* Light cyan background */
+  border: 1px solid #b2ebf2;
+  border-radius: 10px;
+  padding: 20px;
+  margin-top: 25px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.credential-details h3,
+.institution-details h3 {
+  color: #00796b; /* Teal color for sub-headings */
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 1.3em;
+  border-bottom: 1px solid #b2ebf2;
+  padding-bottom: 10px;
+}
+
+.credential-details p,
+.institution-details p {
+  margin: 10px 0;
+  font-size: 1em;
+  color: #444;
+}
+
+.credential-details strong,
+.institution-details strong {
+  color: #004d40; /* Darker teal */
+  font-weight: 600;
+}
+
+.credential-details a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.credential-details a:hover {
+  text-decoration: underline;
+}
+
+/* Verification Status (for verify credential) */
+.verification-status {
+  background-color: #fffde7; /* Light yellow background */
+  border: 1px solid #ffe082;
+  border-radius: 10px;
+  padding: 20px;
+  margin-top: 25px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  font-size: 1.1em;
+}
+
+.verification-status p {
+  margin: 8px 0;
+}
+
+.success-text {
+  color: #28a745; /* Green */
+  font-weight: bold;
+}
+
+.error-text {
+  color: #dc3545; /* Red */
+  font-weight: bold;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .App-header, .tabs, .content {
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .App-header h1 {
+    font-size: 1.8em;
+  }
+
+  .tabs {
+    flex-direction: column; /* Stack tabs vertically on smaller screens */
+    align-items: stretch;
+  }
+
+  .tabs button {
+    width: 100%; /* Full width tabs */
+    margin: 5px 0;
+  }
+
+  input[type="text"],
+  input[type="number"],
+  input[type="date"],
+  textarea {
+    width: 100%; /* Full width inputs */
+  }
+
+  .register-institution-section button,
+  .store-credential-section button:not(.file-upload-section button),
+  .search-credential-section button,
+  .revoke-credential-section button,
+  .verify-credential-section button,
+  .view-institution-section button {
+    width: 100%; /* Full width buttons */
+    align-self: center; /* Center them */
+  }
 }

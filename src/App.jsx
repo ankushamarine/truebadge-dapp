@@ -1,893 +1,820 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
-import SIRCMS_ARTIFACT from './contracts/SIRCMS.json'; // Ensure this path is correct
-import './App.css';
+import { sha256 } from 'js-sha256';
+import './App.css'; // Make sure this path is correct for your styling
 
-// Load environment variables for the frontend
-const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
+// --- Smart Contract Configuration ---
+// IMPORTANT: This ABI has been corrected to precisely match your SIRCMS.sol contract.
+// If you modify your Solidity contract, you MUST re-generate and update this ABI.
+const SIRCMS_ABI = [
+  // Read-only functions (view/pure)
+  "function owner() view returns (address)",
+  "function getAllRegisteredInstitutionAddresses() view returns (address[] memory)",
+  "function institutionsData(address) view returns (address institutionAddress, string name, uint224 code, bool isRegistered)",
+  "function institutionCodeExists(uint224) view returns (bool)",
+  "function searchCredential(uint256 _studentId, uint256 _schoolId) view returns (uint256 studentId, uint256 schoolId, string studentName, uint256 dateOfBirth, string institutionName, string certificateTitle, uint256 issueDate, uint256 expiryDate, string documentHash, string ipfsCid, bool isRevoked)",
+  "function verifyCredential(uint256 _studentId, uint256 _schoolId, string memory _documentHash) view returns (bool isValid, bool isRevoked, bool isExpired)",
+
+  // Write functions (state-changing)
+  "function registerInstitution(address _institutionAddress, string memory _name, uint224 _code)",
+  "function storeCredential(uint256 _studentId, uint256 _schoolId, string memory _studentName, uint256 _dateOfBirth, string memory _institutionName, string memory _certificateTitle, uint256 _issueDate, uint256 _expiryDate, string memory _documentHash, string memory _ipfsCid)",
+  "function revokeCredential(uint256 _studentId, uint256 _schoolId)",
+
+  // Events (Match exactly from your contract)
+  "event InstitutionRegistered(address indexed institutionAddress, string name, uint256 code)",
+  "event CredentialStored(uint256 indexed studentId, uint256 indexed schoolId, string studentName, string institutionName, string certificateTitle, string documentHash)", // Note: ipfsCid is not in event based on your Solidity
+  "event CredentialRevoked(uint256 indexed studentId, uint256 indexed schoolId)"
+];
+
+// Smart Contract Address (Replace with YOUR DEPLOYED CONTRACT ADDRESS on Sepolia)
+const SIRCMS_ADDRESS = '0xA82b7F3fd0366b2B08c8d626dBdC3D2485b73abd'; // <-- REPLACE THIS WITH YOUR DEPLOYED CONTRACT ADDRESS!
+
+// --- Pinata API Keys (WARNING: Exposing API keys in frontend is NOT secure for production) ---
+const PINATA_API_KEY = 'b9e49afd18aa2c5e1276'; // <-- REPLACE WITH YOUR ACTUAL PINATA API KEY!
+const PINATA_API_SECRET = '7c5da2d61b78b81b9ba050e2593be5754ff950559d24fc2e66db11b10a86938d'; // <-- REPLACE WITH YOUR ACTUAL PINATA API SECRET!
 
 function App() {
-  const [currentAccount, setCurrentAccount] = useState(null);
-  const [contractInstance, setContractInstance] = useState(null);
+  const [provider, setProvider] = useState(null);
+  const [signer, setSigner] = useState(null);
+  const [sircmsContract, setSircmsContract] = useState(null);
+  const [connectedAccount, setConnectedAccount] = useState(null);
   const [balance, setBalance] = useState(null);
-  const [error, setError] = useState(null);
   const [contractOwner, setContractOwner] = useState(null);
-  const [isOwner, setIsOwner] = useState(false);
+  const [currentTab, setCurrentTab] = useState('home');
 
-  // State for Tab Navigation
-  const [selectedTab, setSelectedTab] = useState('registerInstitution'); // Default tab
-
-  // State for general success/info messages
+  // General UI state for feedback
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
-  // --- Institution Management States ---
-  // State for Institution Registration form
-  const [newInstitutionAddress, setNewInstitutionAddress] = useState('');
+  // State variables for various DApp functionalities
+  // Register Institution
+  const [newInstitutionAddress, setNewInstitutionAddress] = useState(''); // NEW: For the address to register
   const [newInstitutionName, setNewInstitutionName] = useState('');
-  const [newInstitutionCode, setNewInstitutionCode] = useState('');
+  const [newInstitutionCode, setNewInstitutionCode] = useState(''); // NEW: Renamed from newInstitutionId to reflect 'code'
+  const [checkInstitutionAddress, setCheckInstitutionAddress] = useState(''); // NEW: For checking status by address
+  const [institutionRegisteredStatus, setInstitutionRegisteredStatus] = useState(null);
+  const [fetchedInstitution, setFetchedInstitution] = useState(null);
+  const [viewInstitutionAddress, setViewInstitutionAddress] = useState(''); // NEW: For viewing details by address
 
-  // State for displaying registered institutions
-  const [registeredInstitutions, setRegisteredInstitutions] = useState([]);
+  // Store Credential
+  const [studentId, setStudentId] = useState('');
+  const [schoolId, setSchoolId] = useState('');
+  const [studentName, setStudentName] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState(''); // NEW: For dateOfBirth
+  const [institutionName, setInstitutionName] = useState(''); // For credential storage (name, not address)
+  const [certificateTitle, setCertificateTitle] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [documentHash, setDocumentHash] = useState('');
+  const [ipfsCid, setIpfsCid] = useState('');
+  const [issueDate, setIssueDate] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
+  const [fileUploadMessage, setFileUploadMessage] = useState('');
 
-  // --- Credential Storage States ---
-  // State for Credential Form
-  const [newStudentId, setNewStudentId] = useState('');
-  const [newSchoolId, setNewSchoolId] = useState('');
-  const [newStudentName, setNewStudentName] = useState('');
-  const [newDateOfBirth, setNewDateOfBirth] = useState('');
-  const [newInstitutionNameCredential, setNewInstitutionNameCredential] = useState('');
-  const [newCertificateTitle, setNewCertificateTitle] = useState('');
-  const [newIssueDate, setNewIssueDate] = useState('');
-  const [newExpiryDate, setNewExpiryDate] = useState('');
-  const [newDocumentHash, setNewDocumentHash] = useState('');
-
-  // --- Credential Search States ---
+  // Search Credential
   const [searchStudentId, setSearchStudentId] = useState('');
-  const [searchSchoolId, setSearchSchoolId] = useState('');
-  const [searchResult, setSearchResult] = useState(null); // Will store the fetched credential data
-  const [searchMessage, setSearchMessage] = useState(''); // Specific message for search
+  const [searchSchoolId, setSearchSchoolId] = useState(''); // NEW: For searching by School ID
+  const [fetchedCredential, setFetchedCredential] = useState(null); // Displays result of search
 
-  // --- Credential Revoke States ---
-  const [revokeStudentId, setRevokeStudentId] = useState('');
-  const [revokeSchoolId, setRevokeSchoolId] = useState('');
-  const [revokeMessage, setRevokeMessage] = useState(''); // Specific message for revoke
+  // Revoke Credential
+  const [revokeStudentId, setRevokeStudentId] = useState(''); // NEW: For revoking by Student ID
+  const [revokeSchoolId, setRevokeSchoolId] = useState(''); // NEW: For revoking by School ID
 
-  // --- Credential Verify States ---
-  const [verifyStudentId, setVerifyStudentId] = useState('');
-  const [verifySchoolId, setVerifySchoolId] = useState('');
+  // Verify Credential
+  const [verifyStudentId, setVerifyStudentId] = useState(''); // NEW: For verifying by Student ID
+  const [verifySchoolId, setVerifySchoolId] = useState(''); // NEW: For verifying by School ID
+  const [verifySelectedFile, setVerifySelectedFile] = useState(null);
   const [verifyDocumentHash, setVerifyDocumentHash] = useState('');
-  const [verifyResult, setVerifyResult] = useState(null); // { isValid, isRevoked, isExpired }
-  const [verifyMessage, setVerifyMessage] = useState(''); // Specific message for verify
+  const [verificationResult, setVerificationResult] = useState(null); // Stores { isValid, isRevoked, isExpired }
 
+
+  // --- Wallet and Contract Connection ---
+  const connectWallet = useCallback(async () => {
+    setMessage('');
+    setError('');
+    setLoading(true);
+    try {
+      if (window.ethereum) {
+        const _provider = new ethers.BrowserProvider(window.ethereum);
+        setProvider(_provider);
+
+        await _provider.send("eth_requestAccounts", []);
+        const _signer = await _provider.getSigner();
+        setSigner(_signer);
+
+        const _connectedAccount = await _signer.getAddress();
+        setConnectedAccount(_connectedAccount);
+
+        const _sircmsContract = new ethers.Contract(SIRCMS_ADDRESS, SIRCMS_ABI, _signer);
+        setSircmsContract(_sircmsContract);
+
+        const _balance = await _provider.getBalance(_connectedAccount);
+        setBalance(ethers.formatEther(_balance));
+
+        const ownerAddress = await _sircmsContract.owner();
+        setContractOwner(ownerAddress);
+
+        setMessage('Wallet connected successfully!');
+      } else {
+        setError('MetaMask is not installed. Please install it to use this DApp.');
+      }
+    } catch (err) {
+      console.error("Error connecting wallet:", err);
+      setError(`Failed to connect wallet: ${err.message || 'An unknown error occurred.'}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    console.log("useEffect: Running initial wallet check and setting up listeners.");
-    checkWalletConnection(); // Initial check on mount
+    connectWallet();
 
     if (window.ethereum) {
-      // Define handlers for consistent removal
-      const handleAccounts = (accounts) => handleAccountsChanged(accounts);
-      const handleChain = (chainId) => handleChainChanged(chainId);
+      const handleAccountsChanged = (accounts) => {
+        if (accounts.length > 0) {
+          connectWallet();
+        } else {
+          setConnectedAccount(null); setSigner(null); setSircmsContract(null);
+          setBalance(null); setContractOwner(null); setMessage('Wallet disconnected.');
+        }
+      };
 
-      window.ethereum.on('accountsChanged', handleAccounts);
-      window.ethereum.on('chainChanged', handleChain);
-      // Optional: Add connect/disconnect listeners for more detailed debugging
-      window.ethereum.on('connect', (info) => console.log("MetaMask connected:", info));
-      window.ethereum.on('disconnect', (err) => console.log("MetaMask disconnected:", err));
+      const handleChainChanged = (chainId) => {
+        console.log('Chain changed to:', chainId);
+        window.location.reload();
+      };
+
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+      window.ethereum.on('chainChanged', handleChainChanged);
 
       return () => {
-        console.log("useEffect: Cleaning up event listeners.");
-        window.ethereum.removeListener('accountsChanged', handleAccounts);
-        window.ethereum.removeListener('chainChanged', handleChain);
-        // Remove optional listeners as well if added
-        window.ethereum.removeListener('connect', (info) => console.log("MetaMask connected:", info));
-        window.ethereum.removeListener('disconnect', (err) => console.log("MetaMask disconnected:", err));
+        if (window.ethereum) {
+          window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+          window.ethereum.removeListener('chainChanged', handleChainChanged);
+        }
       };
     }
-  }, []); // Empty dependency array means this runs once on mount and cleanup on unmount
-
-  useEffect(() => {
-    if (contractInstance) {
-      console.log("contractInstance changed, fetching all institutions.");
-      fetchAllInstitutions();
-    }
-  }, [contractInstance]); // Only runs when contractInstance state changes
+  }, [connectWallet]);
 
 
-  const handleAccountsChanged = (accounts) => {
-    console.log("accountsChanged event fired:", accounts);
-    if (accounts.length === 0) {
-      console.log('No accounts found. Disconnecting.');
-      setCurrentAccount(null);
-      setContractInstance(null);
-      setBalance(null);
-      setError(null);
-      setContractOwner(null);
-      setIsOwner(false);
-      setRegisteredInstitutions([]);
-    } else if (accounts[0].toLowerCase() !== currentAccount?.toLowerCase()) { // Only update if account actually changed
-      console.log(`Account changed from ${currentAccount} to ${accounts[0]}`);
-      setCurrentAccount(accounts[0]);
-      initializeContract(accounts[0]); // Re-initialize contract for the new account
-    }
+  // --- Helper Functions for UI Feedback ---
+  const clearMessages = () => {
+    setMessage('');
+    setError('');
+    setFileUploadMessage('');
   };
 
-  const handleChainChanged = (chainId) => {
-    console.log("chainChanged event fired:", chainId);
-    // Reloading the page is the simplest way to handle chain changes
-    window.location.reload();
-  };
-
-  const checkWalletConnection = async () => {
-    console.log("checkWalletConnection: Attempting to check MetaMask accounts.");
-    if (typeof window.ethereum !== 'undefined') {
-      try {
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length > 0) {
-          console.log("checkWalletConnection: Found connected account:", accounts[0]);
-          // If already connected and initialized, no need to re-initialize unless account changed
-          if (accounts[0].toLowerCase() !== currentAccount?.toLowerCase() || !contractInstance) {
-            setCurrentAccount(accounts[0]);
-            await initializeContract(accounts[0]); // Await this to ensure state is set before proceeding
-          } else {
-            console.log("checkWalletConnection: Account already set and contract initialized. Skipping.");
-            setError(null); // Clear any lingering errors if connection is stable
-          }
-        } else {
-          console.log("checkWalletConnection: No authorized accounts found.");
-          setCurrentAccount(null);
-          setContractInstance(null);
-          setBalance(null);
-          setError("Please connect your MetaMask wallet.");
-        }
-      } catch (err) {
-        console.error("checkWalletConnection Error:", err);
-        setError("Error checking wallet connection. See console for details.");
-      }
-    } else {
-      console.log("checkWalletConnection: MetaMask not installed.");
-      setError("MetaMask is not installed. Please install it to use this dApp.");
+  const handleError = (err, action) => {
+    console.error(`Error during ${action}:`, err);
+    // Ethers.js specific error message extraction for 'execution reverted'
+    let errorMessage = err.reason || err.data?.message || err.message || 'An unknown error occurred.';
+    if (errorMessage.includes('missing revert data')) {
+        errorMessage = 'Transaction reverted by contract. Check contract logic or input data.';
+    } else if (errorMessage.includes('require(false)')) {
+        errorMessage = 'Contract condition not met (require statement failed).';
+    } else if (err.code === 'ACTION_REJECTED') {
+        errorMessage = 'Transaction rejected by user.';
     }
-  };
-
-  const connectWallet = async () => {
-    console.log("connectWallet: Attempting to connect MetaMask.");
-    if (typeof window.ethereum !== 'undefined') {
-      try {
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        setCurrentAccount(accounts[0]);
-        await initializeContract(accounts[0]);
-        setError(null);
-        console.log("connectWallet: Wallet connected and contract initialized.");
-      } catch (err) {
-        console.error("connectWallet Error:", err);
-        if (err.code === 4001) {
-          setError("Connection rejected by user. Please approve in MetaMask.");
-        } else {
-          setError("Error connecting to wallet. See console for details.");
-        }
-      }
-    } else {
-      setError("MetaMask is not installed. Please install it to use this dApp.");
-    }
-  };
-
-  const initializeContract = async (account) => {
-    console.log(`initializeContract: Attempting to initialize contract for account: ${account}`);
-    try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-
-      const network = await provider.getNetwork();
-      const sepoliaChainId = BigInt(11155111);
-      console.log(`initializeContract: Current Chain ID: ${network.chainId}. Expected Sepolia: ${sepoliaChainId}`);
-
-      if (network.chainId !== sepoliaChainId) {
-          console.warn("initializeContract: Wrong network detected. Please switch to Sepolia.");
-          setError("Please switch your MetaMask to the Sepolia Test Network (Chain ID: 11155111).");
-          // Crucial: Only set these states if they are not already set to prevent re-render loops
-          // If contractInstance is null and error is set, don't keep resetting it.
-          setContractInstance(null);
-          setBalance(null);
-          setContractOwner(null);
-          setIsOwner(false);
-          return; // Exit early if on the wrong network
-      } else {
-          setError(null); // Clear network error if chain is correct
-      }
-
-      // Only re-instantiate contract if necessary (e.g., first time, or network/account changes)
-      if (!contractInstance || contractInstance.address !== CONTRACT_ADDRESS || contractInstance.runner.address.toLowerCase() !== account.toLowerCase()) {
-        const contract = new ethers.Contract(CONTRACT_ADDRESS, SIRCMS_ARTIFACT.abi, signer);
-        setContractInstance(contract);
-        console.log("initializeContract: SIRCMS Contract instance created.", contract);
-        const ownerAddress = await contract.owner();
-        setContractOwner(ownerAddress);
-        setIsOwner(account.toLowerCase() === ownerAddress.toLowerCase());
-        const accBalance = await provider.getBalance(account);
-        setBalance(ethers.formatEther(accBalance));
-        console.log("initializeContract: Contract initialization completed.");
-      } else {
-        console.log("initializeContract: Contract already initialized for this account/address. Skipping redundant initialization.");
-        // Re-fetch balance and owner status in case they changed (less likely but safer)
-        const accBalance = await provider.getBalance(account);
-        setBalance(ethers.formatEther(accBalance));
-        const ownerAddress = await contractInstance.owner(); // Use existing instance if possible
-        setContractOwner(ownerAddress);
-        setIsOwner(account.toLowerCase() === ownerAddress.toLowerCase());
-      }
-
-    } catch (err) {
-      console.error("initializeContract Error:", err);
-      // More specific error handling for contract initialization issues
-      if (err.message.includes("could not detect network")) {
-        setError("Could not connect to Ethereum network. Ensure MetaMask is connected and valid RPC is configured.");
-      } else if (err.message.includes("network does not support ENS")) {
-        setError("Invalid contract address or ABI, or network misconfiguration. Check CONTRACT_ADDRESS.");
-      } else {
-        setError(`Error initializing contract: ${err.message}. See console for details.`);
-      }
-      setContractInstance(null);
-      setBalance(null);
-      setContractOwner(null);
-      setIsOwner(false);
-    }
+    setError(`Failed to ${action}: ${errorMessage}`);
+    setLoading(false);
   };
 
 
+  // --- Institution Management Functions ---
   const registerInstitution = async () => {
-    if (!contractInstance) {
-      setError("Contract not initialized.");
-      return;
-    }
-    if (!isOwner) {
-      setError("Only the contract owner can register institutions.");
-      return;
-    }
-    if (!newInstitutionAddress || !newInstitutionName || !newInstitutionCode) {
-      setError("All institution fields are required.");
-      return;
-    }
-    setMessage('');
-    setError(null);
-
+    clearMessages();
+    setLoading(true);
     try {
-      const codeNum = parseInt(newInstitutionCode);
-      if (isNaN(codeNum) || codeNum < 100000000 || codeNum > 999999999) {
-        setError("Institution code must be a 9-digit number.");
+      if (!sircmsContract || !newInstitutionAddress || !newInstitutionName || !newInstitutionCode) {
+        setError("Please connect wallet and fill in all institution details.");
+        setLoading(false);
         return;
       }
 
-      setMessage("Registering institution... Please confirm in MetaMask.");
-      const tx = await contractInstance.registerInstitution(
-        newInstitutionAddress,
-        newInstitutionName,
-        codeNum
-      );
-
-      console.log("Register Institution Transaction sent:", tx.hash);
-      setMessage(`Transaction sent: ${tx.hash}. Waiting for confirmation...`);
-
-      await tx.wait();
-
-      const successMsg = `Institution '${newInstitutionName}' registered successfully! Transaction confirmed.`;
-      console.log("Institution registration success message:", successMsg);
-      setMessage(successMsg);
-      setTimeout(() => { setMessage(''); }, 5000);
-
-      setNewInstitutionAddress('');
-      setNewInstitutionName('');
-      setNewInstitutionCode('');
-      fetchAllInstitutions();
-
-    } catch (err) {
-      console.error("Error registering institution:", err);
-      if (err.code === 4001) {
-        setError("Transaction rejected by user.");
-      } else {
-        const revertReason = err.reason || err.data?.message || err.message;
-        if (revertReason.includes("Institution already registered")) {
-            setError("Failed to register: Institution address already registered.");
-        } else if (revertReason.includes("Institution code already exists")) {
-            setError("Failed to register: Institution code already exists.");
-        } else {
-            setError(`Failed to register institution: ${revertReason}`);
-        }
-      }
-      setMessage('');
-    }
-  };
-
-  const fetchAllInstitutions = async () => {
-    if (!contractInstance) {
-      console.log("Contract not initialized, cannot fetch institutions.");
-      return;
-    }
-    setError(null);
-    try {
-      setMessage("Fetching registered institutions...");
-      const addresses = await contractInstance.getAllRegisteredInstitutionAddresses();
-      const institutionsData = [];
-
-      for (const addr of addresses) {
-        try {
-          const inst = await contractInstance.institutionsData(addr);
-          institutionsData.push({
-            address: inst.institutionAddress,
-            name: inst.name,
-            code: Number(inst.code)
-          });
-        } catch (detailError) {
-          console.error(`Error fetching details for institution ${addr}:`, detailError);
-          institutionsData.push({ address: addr, name: "Error fetching", code: 0 });
-        }
-      }
-      setRegisteredInstitutions(institutionsData);
-      const successMsg = "Registered institutions fetched successfully.";
-      console.log("Fetch institutions success message:", successMsg);
-      setMessage(successMsg);
-      setTimeout(() => { setMessage(''); }, 5000);
-      console.log("Registered Institutions:", institutionsData);
-    }
-    catch (err) {
-      console.error("Error fetching all institutions:", err);
-      setError(`Failed to fetch institutions: ${err.reason || err.message}`);
-      setMessage('');
-    }
-  };
-
-  const storeCredential = async () => {
-    if (!contractInstance) {
-      setError("Contract not initialized.");
-      return;
-    }
-    const isRegisteredInstitution = registeredInstitutions.some(inst => inst.address.toLowerCase() === currentAccount.toLowerCase());
-    if (!isOwner && !isRegisteredInstitution) {
-        setError("Only the contract owner or a registered institution can issue credentials.");
-        return;
-    }
-    if (!newStudentId || !newSchoolId || !newStudentName || !newDateOfBirth || !newInstitutionNameCredential || !newCertificateTitle || !newIssueDate || !newDocumentHash) {
-      setError("All credential fields except Expiry Date are required.");
-      return;
-    }
-    setMessage('');
-    setError(null);
-
-    try {
-      const dobTimestamp = Math.floor(new Date(newDateOfBirth).getTime() / 1000);
-      const issueTimestamp = Math.floor(new Date(newIssueDate).getTime() / 1000);
-      const expiryTimestamp = newExpiryDate ? Math.floor(new Date(newExpiryDate).getTime() / 1000) : 0;
-
-      if (isNaN(dobTimestamp) || dobTimestamp <= 0) {
-        setError("Invalid Date of Birth.");
+      const parsedCode = parseInt(newInstitutionCode);
+      if (isNaN(parsedCode) || parsedCode < 100000000 || parsedCode > 999999999) {
+        setError("Institution Code must be a 9-digit number.");
+        setLoading(false);
         return;
       }
-      if (isNaN(issueTimestamp) || issueTimestamp <= 0) {
-        setError("Invalid Issue Date.");
+
+      // Check if institution address is already registered using contract's public getter
+      const existingInstitution = await sircmsContract.institutionsData(newInstitutionAddress);
+      if (existingInstitution.isRegistered) { // Check the 'isRegistered' field from the returned struct
+        setError("Institution with this address is already registered.");
+        setLoading(false);
         return;
       }
-      if (expiryTimestamp !== 0 && expiryTimestamp < issueTimestamp) {
-        setError("Expiry Date cannot be before Issue Date.");
-        return;
-      }
-      if (newDocumentHash.trim() === '') {
-          setError("Document Hash (IPFS CID/URL) cannot be empty.");
+
+      // Check if institution code already exists using contract's public getter
+      const codeExists = await sircmsContract.institutionCodeExists(parsedCode);
+      if (codeExists) {
+          setError("Institution with this code is already registered.");
+          setLoading(false);
           return;
       }
 
-      setMessage("Storing credential... Please confirm in MetaMask.");
-      const tx = await contractInstance.storeCredential(
-        newStudentId,
-        newSchoolId,
-        newStudentName,
-        dobTimestamp,
-        newInstitutionNameCredential,
-        newCertificateTitle,
-        issueTimestamp,
-        expiryTimestamp,
-        newDocumentHash
-      );
-
-      console.log("Store Credential Transaction sent:", tx.hash);
-      setMessage(`Transaction sent: ${tx.hash}. Waiting for confirmation...`);
-
-      await tx.wait();
-
-      const successMsg = `Credential for '${newStudentName}' (${newCertificateTitle}) stored successfully! Transaction confirmed.`;
-      console.log("Store Credential success message:", successMsg);
-      setMessage(successMsg);
-      setTimeout(() => { setMessage(''); }, 5000);
-
-      setNewStudentId('');
-      setNewSchoolId('');
-      setNewStudentName('');
-      setNewDateOfBirth('');
-      setNewInstitutionNameCredential('');
-      setNewCertificateTitle('');
-      setNewIssueDate('');
-      setNewExpiryDate('');
-      setNewDocumentHash('');
-
+      // Call the contract function with correct arguments (address, string, uint224)
+      const tx = await sircmsContract.registerInstitution(newInstitutionAddress, newInstitutionName, parsedCode);
+      setMessage(`Registering institution... Transaction hash: ${tx.hash}`);
+      await tx.wait(); // Wait for the transaction to be mined
+      setMessage(`Institution "${newInstitutionName}" registered successfully!`);
+      setNewInstitutionAddress('');
+      setNewInstitutionName('');
+      setNewInstitutionCode('');
     } catch (err) {
-      console.error("Error storing credential:", err);
-      if (err.code === 4001) {
-        setError("Transaction rejected by user.");
-      } else {
-        const revertReason = err.reason || err.data?.message || err.message;
-        if (revertReason.includes("Credential already exists")) {
-            setError("Failed to store credential: Credential with this Student ID and School ID already exists.");
-        } else {
-            setError(`Failed to store credential: ${revertReason}`);
-        }
-      }
-      setMessage('');
+      handleError(err, 'registering institution');
+    } finally {
+      setLoading(false);
     }
   };
 
-
-  // --- NEW: Search Credential Function ---
-  const searchCredential = async () => {
-    if (!contractInstance) {
-      setSearchMessage("Contract not initialized.");
-      return;
-    }
-    if (!searchStudentId || !searchSchoolId) {
-      setSearchMessage("Please enter both Student ID and School ID to search.");
-      setSearchResult(null);
-      return;
-    }
-    setSearchMessage("Searching for credential...");
-    setError(null);
-
+  const checkInstitutionRegistered = async () => {
+    clearMessages();
+    setLoading(true);
+    setInstitutionRegisteredStatus(null);
     try {
-      // The contract's searchCredential returns a tuple of values
-      const result = await contractInstance.searchCredential(searchStudentId, searchSchoolId);
-      console.log("Raw search result:", result);
-
-      // Ethers.js often returns BigInt for uint256, convert dates and IDs for display
-      setSearchResult({
-        studentId: Number(result[0]),
-        schoolId: Number(result[1]),
-        studentName: result[2],
-        dateOfBirth: result[3] > 0 ? new Date(Number(result[3]) * 1000).toLocaleDateString() : 'N/A',
-        institutionName: result[4],
-        certificateTitle: result[5],
-        issueDate: result[6] > 0 ? new Date(Number(result[6]) * 1000).toLocaleDateString() : 'N/A',
-        expiryDate: result[7] > 0 ? new Date(Number(result[7]) * 1000).toLocaleDateString() : 'N/A',
-        documentHash: result[8],
-        isRevoked: result[9]
-      });
-      setSearchMessage("Credential found successfully!");
-      setTimeout(() => { setSearchMessage(''); }, 5000);
-    } catch (err) {
-      console.error("Error searching credential:", err);
-      const revertReason = err.reason || err.data?.message || err.message;
-      if (revertReason.includes("Credential not found")) {
-        setSearchMessage("Credential not found for the given IDs.");
-      } else {
-        setSearchMessage(`Failed to search credential: ${revertReason}`);
-      }
-      setSearchResult(null);
-    }
-  };
-
-  // --- NEW: Revoke Credential Function ---
-  const revokeCredential = async () => {
-    if (!contractInstance) {
-      setRevokeMessage("Contract not initialized.");
-      return;
-    }
-    const isRegisteredInstitution = registeredInstitutions.some(inst => inst.address.toLowerCase() === currentAccount.toLowerCase());
-    if (!isOwner && !isRegisteredInstitution) {
-        setRevokeMessage("Only the contract owner or a registered institution can revoke credentials.");
+      if (!sircmsContract || !checkInstitutionAddress) {
+        setError("Please connect wallet and enter an institution Address to check.");
+        setLoading(false);
         return;
+      }
+      // Call the public getter for institutionsData mapping
+      const institutionData = await sircmsContract.institutionsData(checkInstitutionAddress);
+      // The `isRegistered` field determines if it's registered
+      setInstitutionRegisteredStatus(institutionData.isRegistered);
+      setMessage(`Institution "${checkInstitutionAddress}" is ${institutionData.isRegistered ? 'REGISTERED' : 'NOT REGISTERED'}.`);
+    } catch (err) {
+      handleError(err, 'checking institution status');
+    } finally {
+      setLoading(false);
     }
-    if (!revokeStudentId || !revokeSchoolId) {
-      setRevokeMessage("Please enter both Student ID and School ID to revoke.");
-      return;
+  };
+
+  const getInstitutionDetails = async () => {
+    clearMessages();
+    setLoading(true);
+    setFetchedInstitution(null);
+    try {
+      if (!sircmsContract || !viewInstitutionAddress) {
+        setError("Please connect wallet and enter an institution Address to view.");
+        setLoading(false);
+        return;
+      }
+      // Call the public getter for the mapping
+      const institution = await sircmsContract.institutionsData(viewInstitutionAddress);
+
+      // Check if the returned address is not the zero address AND if it's explicitly marked as registered
+      // This is a robust check for existence in the mapping
+      if (institution.institutionAddress !== ethers.ZeroAddress && institution.isRegistered) {
+          setFetchedInstitution({
+              institutionAddress: institution.institutionAddress, // Match Solidity struct
+              name: institution.name, // Match Solidity struct
+              code: Number(institution.code), // Convert BigNumber to number for display, match Solidity struct
+              isRegistered: institution.isRegistered // Match Solidity struct
+          });
+          setMessage(`Institution details fetched for "${institution.name}".`);
+      } else {
+          setFetchedInstitution(null);
+          setMessage(`Institution "${viewInstitutionAddress}" not found or not registered.`);
+      }
+    } catch (err) {
+      handleError(err, 'fetching institution details');
+    } finally {
+      setLoading(false);
     }
-    setRevokeMessage("Revoking credential... Please confirm in MetaMask.");
+  };
+
+
+  // --- File Hashing and IPFS Upload ---
+  const handleFileChange = (event) => {
+    clearMessages();
+    const file = event.target.files[0];
+    if (file) {
+      setSelectedFile(file);
+      setIpfsCid('');
+      setFileUploadMessage('');
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        const buffer = e.target.result;
+        const hash = sha256(new Uint8Array(buffer));
+        setDocumentHash(hash);
+        setFileUploadMessage(`File selected and hash calculated: ${hash}`);
+      };
+      reader.onerror = (e) => {
+        console.error("FileReader error:", e);
+        setFileUploadMessage("Error reading file.");
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      setSelectedFile(null);
+      setDocumentHash('');
+      setFileUploadMessage("No file selected.");
+    }
+  };
+
+  const uploadDocumentToIPFS = async () => {
+    if (!selectedFile) {
+      setFileUploadMessage("Please select a file to upload.");
+      return null;
+    }
+    setFileUploadMessage("Uploading to IPFS via Pinata... This may take a moment.");
     setError(null);
 
     try {
-      const tx = await contractInstance.revokeCredential(revokeStudentId, revokeSchoolId);
-      console.log("Revoke Credential Transaction sent:", tx.hash);
-      setRevokeMessage(`Transaction sent: ${tx.hash}. Waiting for confirmation...`);
+      const formData = new FormData();
+      formData.append('file', selectedFile);
 
+      const metadata = { name: selectedFile.name };
+      const options = { cidVersion: 0 };
+      formData.append('pinataMetadata', JSON.stringify(metadata));
+      formData.append('pinataOptions', JSON.stringify(options));
+
+      const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+        method: 'POST',
+        headers: {
+          'pinata_api_key': PINATA_API_KEY,
+          'pinata_secret_api_key': PINATA_API_SECRET,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => response.text());
+        console.error("Pinata API Error Response:", errorBody);
+        throw new Error(`Pinata API Error: ${response.status} - ${JSON.stringify(errorBody)}`);
+      }
+
+      const result = await response.json();
+      const cid = result.IpfsHash;
+      setIpfsCid(cid);
+      setFileUploadMessage(`File uploaded to IPFS! CID: ${cid}`);
+      console.log("IPFS CID:", cid);
+      return cid;
+    } catch (err) {
+      console.error("Error uploading to IPFS via Pinata (direct fetch):", err);
+      setFileUploadMessage(`Failed to upload to IPFS: ${err.message}`);
+      setError(`Upload Error: ${err.message}`);
+      return null;
+    }
+  };
+
+
+  // --- Credential Management Functions ---
+  const storeCredential = async () => {
+    clearMessages();
+    setLoading(true);
+    try {
+      // Basic input validation
+      if (!sircmsContract || !studentId || !schoolId || !studentName || !dateOfBirth || !institutionName || !certificateTitle || !documentHash || !ipfsCid || !issueDate) {
+        setError("Please fill all required fields and ensure the document is uploaded to IPFS.");
+        setLoading(false);
+        return;
+      }
+
+      // Convert IDs to numbers
+      const studentIdNum = parseInt(studentId);
+      const schoolIdNum = parseInt(schoolId);
+      if (isNaN(studentIdNum) || isNaN(schoolIdNum)) {
+          setError("Student ID and School ID must be valid numbers.");
+          setLoading(false);
+          return;
+      }
+
+      // Convert dates to Unix timestamps (seconds since epoch)
+      const dobTimestamp = Math.floor(new Date(dateOfBirth).getTime() / 1000);
+      const issueDateTimestamp = Math.floor(new Date(issueDate).getTime() / 1000);
+      const expiryDateTimestamp = expiryDate ? Math.floor(new Date(expiryDate).getTime() / 1000) : 0;
+
+      if (isNaN(dobTimestamp) || isNaN(issueDateTimestamp) || (expiryDate && isNaN(expiryDateTimestamp))) {
+          setError("Invalid Date format. Please use Букмекерлар-MM-DD.");
+          setLoading(false);
+          return;
+      }
+
+      // Call the contract function with correct arguments and order
+      const tx = await sircmsContract.storeCredential(
+        studentIdNum,
+        schoolIdNum,
+        studentName,
+        dobTimestamp, // Added dateOfBirth timestamp
+        institutionName,
+        certificateTitle,
+        issueDateTimestamp,
+        expiryDateTimestamp,
+        documentHash,
+        ipfsCid
+      );
+      setMessage(`Storing credential... Transaction hash: ${tx.hash}`);
       await tx.wait();
+      setMessage(`Credential for ${studentName} (${certificateTitle}) stored successfully!`);
 
-      const successMsg = `Credential (Student ID: ${revokeStudentId}, School ID: ${revokeSchoolId}) revoked successfully!`;
-      console.log("Revoke Credential success message:", successMsg);
-      setRevokeMessage(successMsg);
-      setTimeout(() => { setRevokeMessage(''); }, 5000);
+      // Clear form fields after successful storage
+      setStudentId('');
+      setSchoolId('');
+      setStudentName('');
+      setDateOfBirth(''); // Clear new field
+      setInstitutionName('');
+      setCertificateTitle('');
+      setSelectedFile(null);
+      setDocumentHash('');
+      setIpfsCid('');
+      setIssueDate('');
+      setExpiryDate('');
+      setFileUploadMessage('');
 
-      // Clear fields and potentially refresh search result if it was this credential
+    } catch (err) {
+      handleError(err, 'storing credential');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const searchCredential = async () => {
+    clearMessages();
+    setLoading(true);
+    setFetchedCredential(null); // Search now returns a single credential or reverts
+    try {
+      // Your Solidity search takes studentId and schoolId.
+      if (!sircmsContract || !searchStudentId || !searchSchoolId) {
+        setError("Please fill Student ID and School ID to search for a credential.");
+        setLoading(false);
+        return;
+      }
+
+      const studentIdNum = parseInt(searchStudentId);
+      const schoolIdNum = parseInt(searchSchoolId);
+      if (isNaN(studentIdNum) || isNaN(schoolIdNum)) {
+          setError("Student ID and School ID must be valid numbers.");
+          setLoading(false);
+          return;
+      }
+
+      const credential = await sircmsContract.searchCredential(studentIdNum, schoolIdNum);
+
+      // If credential.studentId is 0, it means it was not found (due to require in Solidity).
+      // If the call succeeds, it means it was found.
+      const readableDateOfBirth = new Date(Number(credential.dateOfBirth) * 1000).toLocaleDateString();
+      const readableIssueDate = new Date(Number(credential.issueDate) * 1000).toLocaleDateString();
+      const readableExpiryDate = credential.expiryDate > 0 ? new Date(Number(credential.expiryDate) * 1000).toLocaleDateString() : 'N/A';
+
+      setFetchedCredential({
+        studentId: Number(credential.studentId),
+        schoolId: Number(credential.schoolId),
+        studentName: credential.studentName,
+        dateOfBirth: readableDateOfBirth,
+        institutionName: credential.institutionName,
+        certificateTitle: credential.certificateTitle,
+        issueDate: readableIssueDate,
+        expiryDate: readableExpiryDate,
+        documentHash: credential.documentHash,
+        ipfsCid: credential.ipfsCid,
+        isRevoked: credential.isRevoked
+      });
+      setMessage(`Credential found for Student ID: ${searchStudentId}, School ID: ${searchSchoolId}`);
+
+    } catch (err) {
+      handleError(err, 'searching credential');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Removed getCredentialDetails function as searchCredential now handles fetching full details.
+  // The ABI no longer supports getCredential(string _credentialHash).
+
+  const revokeCredential = async () => {
+    clearMessages();
+    setLoading(true);
+    try {
+      if (!sircmsContract || !revokeStudentId || !revokeSchoolId) {
+        setError("Please enter Student ID and School ID to revoke.");
+        setLoading(false);
+        return;
+      }
+
+      const studentIdNum = parseInt(revokeStudentId);
+      const schoolIdNum = parseInt(revokeSchoolId);
+      if (isNaN(studentIdNum) || isNaN(schoolIdNum)) {
+          setError("Student ID and School ID must be valid numbers for revocation.");
+          setLoading(false);
+          return;
+      }
+
+      const tx = await sircmsContract.revokeCredential(studentIdNum, schoolIdNum);
+      setMessage(`Revoking credential... Transaction hash: ${tx.hash}`);
+      await tx.wait();
+      setMessage(`Credential for Student ID "${revokeStudentId}" and School ID "${revokeSchoolId}" revoked successfully!`);
       setRevokeStudentId('');
       setRevokeSchoolId('');
-      setSearchResult(null); // Clear previous search if any
     } catch (err) {
-      console.error("Error revoking credential:", err);
-      if (err.code === 4001) {
-        setRevokeMessage("Transaction rejected by user.");
-      } else {
-        const revertReason = err.reason || err.data?.message || err.message;
-        if (revertReason.includes("Credential not found")) {
-            setRevokeMessage("Failed to revoke: Credential not found.");
-        } else if (revertReason.includes("Credential is already revoked")) {
-            setRevokeMessage("Failed to revoke: Credential is already revoked.");
-        } else if (revertReason.includes("Only the issuing institution or contract owner can revoke this credential")) {
-            setRevokeMessage("Failed to revoke: You are not the issuing institution for this credential.");
-        } else {
-            setRevokeMessage(`Failed to revoke credential: ${revertReason}`);
-        }
-      }
+      handleError(err, 'revoking credential');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // --- NEW: Verify Credential Function ---
+  const handleVerifyFileChange = (event) => {
+    clearMessages();
+    const file = event.target.files[0];
+    if (file) {
+      setVerifySelectedFile(file);
+      setVerificationResult(null);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const buffer = e.target.result;
+        const hash = sha256(new Uint8Array(buffer));
+        setVerifyDocumentHash(hash);
+        setMessage("File selected and hash calculated for verification.");
+      };
+      reader.onerror = (e) => {
+        console.error("FileReader error:", e);
+        setMessage("Error reading file for verification.");
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      setVerifySelectedFile(null);
+      setVerifyDocumentHash('');
+      setMessage("No file selected for verification.");
+    }
+  };
+
   const verifyCredential = async () => {
-    if (!contractInstance) {
-      setVerifyMessage("Contract not initialized.");
-      return;
-    }
-    if (!verifyStudentId || !verifySchoolId || !verifyDocumentHash) {
-      setVerifyMessage("Please enter Student ID, School ID, and Document Hash to verify.");
-      setVerifyResult(null);
-      return;
-    }
-    setVerifyMessage("Verifying credential...");
-    setError(null);
-
+    clearMessages();
+    setLoading(true);
+    setVerificationResult(null);
     try {
-      const [isValid, isRevoked, isExpired] = await contractInstance.verifyCredential(
-        verifyStudentId,
-        verifySchoolId,
-        verifyDocumentHash
-      );
-      console.log("Verification result:", { isValid, isRevoked, isExpired });
-
-      setVerifyResult({ isValid, isRevoked, isExpired });
-      if (isValid) {
-        setVerifyMessage("Credential is VALID!");
-      } else {
-        let status = "Credential is INVALID: ";
-        if (isRevoked) status += "It has been revoked. ";
-        if (isExpired) status += "It has expired. ";
-        // Only add mismatch if it's not revoked or expired but still invalid (implies hash mismatch or not found)
-        if (!isValid && !isRevoked && !isExpired) status += "Document hash mismatch or not found. ";
-        setVerifyMessage(status.trim()); // Trim to remove trailing space if no extra reasons
+      if (!sircmsContract || !verifyStudentId || !verifySchoolId || !verifyDocumentHash) {
+        setError("Please enter Student ID, School ID and upload the document for verification.");
+        setLoading(false);
+        return;
       }
-      setTimeout(() => { setVerifyMessage(''); }, 8000); // Keep verification message longer
+
+      const studentIdNum = parseInt(verifyStudentId);
+      const schoolIdNum = parseInt(verifySchoolId);
+      if (isNaN(studentIdNum) || isNaN(schoolIdNum)) {
+          setError("Student ID and School ID must be valid numbers.");
+          setLoading(false);
+          return;
+      }
+
+      const [isValid, isRevoked, isExpired] = await sircmsContract.verifyCredential(studentIdNum, schoolIdNum, verifyDocumentHash);
+
+      setVerificationResult({ isValid, isRevoked, isExpired });
+      if (isValid) {
+        setMessage("Credential verified successfully: The document hash matches the stored record, and it's not revoked or expired.");
+      } else {
+        let failReason = "Credential verification failed: ";
+        if (isRevoked) failReason += "Credential is revoked. ";
+        if (isExpired) failReason += "Credential is expired. ";
+        if (!isValid && !isRevoked && !isExpired) failReason += "Document hash does NOT match or credential not found.";
+        setError(failReason);
+      }
     } catch (err) {
-      console.error("Error verifying credential:", err);
-      const revertReason = err.reason || err.data?.message || err.message;
-      setVerifyMessage(`Failed to verify credential: ${revertReason}`);
-      setVerifyResult(null);
+      handleError(err, 'verifying credential');
+    } finally {
+      setLoading(false);
     }
   };
 
 
+  // --- Render UI ---
   return (
     <div className="App">
       <header className="App-header">
         <h1>SIRCMS Decentralized Application</h1>
-        {error && <p className="error-message">{error}</p>}
-
-        {currentAccount ? (
-          <div>
-            <p>Connected Account: <strong>{currentAccount}</strong></p>
-            {balance !== null && <p>Account Balance (Sepolia): <strong>{balance} ETH</strong></p>}
-
-            {contractInstance ? (
-              <div>
-                <p>Contract Initialized at: <strong>{CONTRACT_ADDRESS}</strong></p>
-                {contractOwner && <p>Contract Owner: <strong>{contractOwner}</strong></p>}
-                {isOwner && <p className="owner-indicator">You are the contract owner!</p>}
-                {!isOwner && contractOwner && <p className="not-owner-indicator">You are NOT the contract owner.</p>}
-
-                <h2>Interact with SIRCMS Contract</h2>
-
-                {/* Tabs Navigation */}
-                <div className="tabs-container">
-                  {isOwner && (
-                    <button
-                      className={`tab-button ${selectedTab === 'registerInstitution' ? 'active' : ''}`}
-                      onClick={() => setSelectedTab('registerInstitution')}
-                    >
-                      Register Institution
-                    </button>
-                  )}
-                  <button
-                    className={`tab-button ${selectedTab === 'viewInstitutions' ? 'active' : ''}`}
-                    onClick={() => setSelectedTab('viewInstitutions')}
-                  >
-                    View Institutions
-                  </button>
-                  {/* Store Credential tab is visible if owner or registered institution */}
-                  {(isOwner || registeredInstitutions.some(inst => inst.address.toLowerCase() === currentAccount.toLowerCase())) && (
-                    <button
-                      className={`tab-button ${selectedTab === 'storeCredential' ? 'active' : ''}`}
-                      onClick={() => setSelectedTab('storeCredential')}
-                    >
-                      Store Credential
-                    </button>
-                  )}
-                  <button
-                    className={`tab-button ${selectedTab === 'searchCredential' ? 'active' : ''}`}
-                    onClick={() => setSelectedTab('searchCredential')}
-                  >
-                    Search Credential
-                  </button>
-                  {(isOwner || registeredInstitutions.some(inst => inst.address.toLowerCase() === currentAccount.toLowerCase())) && (
-                    <button
-                      className={`tab-button ${selectedTab === 'revokeCredential' ? 'active' : ''}`}
-                      onClick={() => setSelectedTab('revokeCredential')}
-                    >
-                      Revoke Credential
-                    </button>
-                  )}
-                  <button
-                    className={`tab-button ${selectedTab === 'verifyCredential' ? 'active' : ''}`}
-                    onClick={() => setSelectedTab('verifyCredential')}
-                  >
-                    Verify Credential
-                  </button>
-                </div>
-
-                {/* General Message Area - Stays above tabs and their content */}
-                {message && <p className="info-message">{message}</p>}
-
-                {/* Tab Content */}
-                <div className="tab-content">
-                  {selectedTab === 'registerInstitution' && isOwner && (
-                    <div className="section-box">
-                      <h3>Register New Institution</h3>
-                      <input
-                        type="text"
-                        placeholder="Institution Address (e.g., 0x...)"
-                        value={newInstitutionAddress}
-                        onChange={(e) => setNewInstitutionAddress(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Institution Name (e.g., University A)"
-                        value={newInstitutionName}
-                        onChange={(e) => setNewInstitutionName(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="number"
-                        placeholder="Institution Code (9 digits)"
-                        value={newInstitutionCode}
-                        onChange={(e) => setNewInstitutionCode(e.target.value)}
-                        className="input-field"
-                      />
-                      <button onClick={registerInstitution} className="action-button">Register Institution</button>
-                    </div>
-                  )}
-
-                  {selectedTab === 'viewInstitutions' && (
-                    <div className="section-box">
-                      <h3>Registered Institutions</h3>
-                      <button onClick={fetchAllInstitutions} className="action-button" style={{ marginBottom: '15px' }}>
-                        Refresh Institutions List
-                      </button>
-                      {registeredInstitutions.length === 0 ? (
-                        <p>No institutions registered yet.</p>
-                      ) : (
-                        <ul className="institution-list">
-                          {registeredInstitutions.map((inst, index) => (
-                            <li key={inst.address} className="institution-item">
-                              <p><strong>Name:</strong> {inst.name}</p>
-                              <p><strong>Address:</strong> {inst.address}</p>
-                              <p><strong>Code:</strong> {inst.code}</p>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-
-                  {selectedTab === 'storeCredential' && (isOwner || registeredInstitutions.some(inst => inst.address.toLowerCase() === currentAccount.toLowerCase())) ? (
-                    <div className="section-box">
-                      <h3>Store New Credential</h3>
-                      <input
-                        type="number"
-                        placeholder="Student ID"
-                        value={newStudentId}
-                        onChange={(e) => setNewStudentId(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="number"
-                        placeholder="School ID"
-                        value={newSchoolId}
-                        onChange={(e) => setNewSchoolId(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Student Name"
-                        value={newStudentName}
-                        onChange={(e) => setNewStudentName(e.target.value)}
-                        className="input-field"
-                      />
-                      <label className="input-label">Date of Birth:</label>
-                      <input
-                        type="date"
-                        value={newDateOfBirth}
-                        onChange={(e) => setNewDateOfBirth(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Issuing Institution Name"
-                        value={newInstitutionNameCredential}
-                        onChange={(e) => setNewInstitutionNameCredential(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Certificate Title (e.g., Bachelor of Science)"
-                        value={newCertificateTitle}
-                        onChange={(e) => setNewCertificateTitle(e.target.value)}
-                        className="input-field"
-                      />
-                      <label className="input-label">Issue Date:</label>
-                      <input
-                        type="date"
-                        value={newIssueDate}
-                        onChange={(e) => setNewIssueDate(e.target.value)}
-                        className="input-field"
-                      />
-                      <label className="input-label">Expiry Date (optional):</label>
-                      <input
-                        type="date"
-                        value={newExpiryDate}
-                        onChange={(e) => setNewExpiryDate(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Document Hash (IPFS CID/URL)"
-                        value={newDocumentHash}
-                        onChange={(e) => setNewDocumentHash(e.target.value)}
-                        className="input-field"
-                      />
-                      <button onClick={storeCredential} className="action-button">Store Credential</button>
-                    </div>
-                  ) : selectedTab === 'storeCredential' && (
-                    <div className="section-box">
-                        <h3>Store New Credential</h3>
-                        <p className="not-owner-indicator">
-                            You must be the contract owner or a registered institution to store credentials.
-                        </p>
-                    </div>
-                  )}
-
-                  {/* NEW: Search Credential Tab Content */}
-                  {selectedTab === 'searchCredential' && (
-                    <div className="section-box">
-                      <h3>Search Credential</h3>
-                      <input
-                        type="number"
-                        placeholder="Student ID"
-                        value={searchStudentId}
-                        onChange={(e) => setSearchStudentId(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="number"
-                        placeholder="School ID"
-                        value={searchSchoolId}
-                        onChange={(e) => setSearchSchoolId(e.target.value)}
-                        className="input-field"
-                      />
-                      <button onClick={searchCredential} className="action-button">Search Credential</button>
-                      {searchMessage && <p className="info-message">{searchMessage}</p>}
-                      {searchResult && (
-                        <div className="search-result">
-                          <h4>Credential Details:</h4>
-                          <p><strong>Student ID:</strong> {searchResult.studentId}</p>
-                          <p><strong>School ID:</strong> {searchResult.schoolId}</p>
-                          <p><strong>Student Name:</strong> {searchResult.studentName}</p>
-                          <p><strong>Date of Birth:</strong> {searchResult.dateOfBirth}</p>
-                          <p><strong>Institution Name:</strong> {searchResult.institutionName}</p>
-                          <p><strong>Certificate Title:</strong> {searchResult.certificateTitle}</p>
-                          <p><strong>Issue Date:</strong> {searchResult.issueDate}</p>
-                          <p><strong>Expiry Date:</strong> {searchResult.expiryDate}</p>
-                          <p><strong>Document Hash:</strong> <a href={searchResult.documentHash} target="_blank" rel="noopener noreferrer">{searchResult.documentHash}</a></p>
-                          <p><strong>Revoked:</strong> {searchResult.isRevoked ? 'Yes' : 'No'}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* NEW: Revoke Credential Tab Content */}
-                  {selectedTab === 'revokeCredential' && (isOwner || registeredInstitutions.some(inst => inst.address.toLowerCase() === currentAccount.toLowerCase())) ? (
-                    <div className="section-box">
-                      <h3>Revoke Credential</h3>
-                      <input
-                        type="number"
-                        placeholder="Student ID to revoke"
-                        value={revokeStudentId}
-                        onChange={(e) => setRevokeStudentId(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="number"
-                        placeholder="School ID to revoke"
-                        value={revokeSchoolId}
-                        onChange={(e) => setRevokeSchoolId(e.target.value)}
-                        className="input-field"
-                      />
-                      <button onClick={revokeCredential} className="action-button">Revoke Credential</button>
-                      {revokeMessage && <p className="info-message">{revokeMessage}</p>}
-                    </div>
-                  ) : selectedTab === 'revokeCredential' && (
-                    <div className="section-box">
-                        <h3>Revoke Credential</h3>
-                        <p className="not-owner-indicator">
-                            You must be the contract owner or a registered institution to revoke credentials.
-                        </p>
-                    </div>
-                  )}
-
-                  {/* NEW: Verify Credential Tab Content */}
-                  {selectedTab === 'verifyCredential' && (
-                    <div className="section-box">
-                      <h3>Verify Credential</h3>
-                      <input
-                        type="number"
-                        placeholder="Student ID for verification"
-                        value={verifyStudentId}
-                        onChange={(e) => setVerifyStudentId(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="number"
-                        placeholder="School ID for verification"
-                        value={verifySchoolId}
-                        onChange={(e) => setVerifySchoolId(e.target.value)}
-                        className="input-field"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Document Hash (from the physical/digital credential)"
-                        value={verifyDocumentHash}
-                        onChange={(e) => setVerifyDocumentHash(e.target.value)}
-                        className="input-field"
-                      />
-                      <button onClick={verifyCredential} className="action-button">Verify Credential</button>
-                      {verifyMessage && <p className="info-message">{verifyMessage}</p>}
-                      {verifyResult && (
-                        <div className="verify-result">
-                          <h4>Verification Status:</h4>
-                          <p className={verifyResult.isValid ? 'owner-indicator' : 'error-message'}>
-                            <strong>Valid:</strong> {verifyResult.isValid ? 'Yes' : 'No'}
-                          </p>
-                          <p><strong>Revoked:</strong> {verifyResult.isRevoked ? 'Yes' : 'No'}</p>
-                          <p><strong>Expired:</strong> {verifyResult.isExpired ? 'Yes' : 'No'}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-
-                  <p style={{marginTop: '30px', borderTop: '1px solid #eee', paddingTop: '20px'}}>
-                    This is the final set of core SIRCMS functions.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <p>Initializing contract...</p>
+        {connectedAccount ? (
+          <div className="connection-info">
+            <p>Connected Account: <strong>{connectedAccount}</strong></p>
+            {balance && <p>Account Balance (Sepolia): <strong>{balance} ETH</strong></p>}
+            {sircmsContract && (
+                <>
+                    <p>Contract Initialized at: <strong>{sircmsContract.target}</strong></p>
+                    {contractOwner && (
+                        <p>Contract Owner: <strong>{contractOwner}</strong></p>
+                    )}
+                    {connectedAccount && contractOwner && connectedAccount.toLowerCase() === contractOwner.toLowerCase() && (
+                        <p className="owner-message">You are the contract owner!</p>
+                    )}
+                </>
             )}
           </div>
         ) : (
-          <button onClick={connectWallet} className="connect-button">Connect Wallet</button>
+          <button onClick={connectWallet} disabled={loading}>
+            {loading ? 'Connecting...' : 'Connect Wallet'}
+          </button>
         )}
+
+        {message && <p className="message">{message}</p>}
+        {error && <p className="error">{error}</p>}
       </header>
+
+      <nav className="tabs">
+        <button onClick={() => { setCurrentTab('home'); clearMessages(); }}>Home</button>
+        <button onClick={() => { setCurrentTab('register'); clearMessages(); }}>Register Institution</button>
+        <button onClick={() => { setCurrentTab('view-institutions'); clearMessages(); }}>View Institutions</button>
+        <button onClick={() => { setCurrentTab('store'); clearMessages(); }}>Store Credential</button>
+        <button onClick={() => { setCurrentTab('search'); clearMessages(); }}>Search Credential</button>
+        <button onClick={() => { setCurrentTab('revoke'); clearMessages(); }}>Revoke Credential</button>
+        <button onClick={() => { setCurrentTab('verify'); clearMessages(); }}>Verify Credential</button>
+      </nav>
+
+      <main className="content">
+        {currentTab === 'home' && (
+          <section className="home-section">
+            <h2>Welcome to SIRCMS</h2>
+            <p>Your decentralized solution for secure credential management.</p>
+            <p>Use the tabs above to interact with the smart contract.</p>
+            <p><strong>Remember:</strong> Ensure your MetaMask wallet is connected to the Sepolia test network.</p>
+            <p>For storing credentials, please upload the document to IPFS first to get the CID.</p>
+          </section>
+        )}
+
+        {currentTab === 'register' && (
+          <section className="register-institution-section">
+            <h2>Register Institution</h2>
+            <input
+              type="text"
+              placeholder="Institution Address (e.g., your wallet address)"
+              value={newInstitutionAddress}
+              onChange={(e) => setNewInstitutionAddress(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="Institution Name"
+              value={newInstitutionName}
+              onChange={(e) => setNewInstitutionName(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="Institution Code (9-digit number)"
+              value={newInstitutionCode}
+              onChange={(e) => setNewInstitutionCode(e.target.value)}
+            />
+            <button onClick={registerInstitution} disabled={loading || !connectedAccount}>
+              {loading ? 'Registering...' : 'Register Institution'}
+            </button>
+
+            <h3 style={{marginTop: '20px'}}>Check Institution Status</h3>
+            <input
+              type="text"
+              placeholder="Institution Address to Check" // Corrected placeholder
+              value={checkInstitutionAddress}
+              onChange={(e) => setCheckInstitutionAddress(e.target.value)} // <--- THIS LINE IS NOW CORRECTED
+            />
+            <button onClick={checkInstitutionRegistered} disabled={loading || !connectedAccount}>
+              {loading ? 'Checking...' : 'Check Status'}
+            </button>
+            {institutionRegisteredStatus !== null && (
+              <p>Status: {institutionRegisteredStatus ? 'Registered' : 'Not Registered'}</p>
+            )}
+          </section>
+        )}
+
+        {currentTab === 'view-institutions' && (
+            <section className="view-institution-section">
+                <h2>View Institution Details</h2>
+                <input
+                    type="text"
+                    placeholder="Institution Address to View"
+                    value={viewInstitutionAddress}
+                    onChange={(e) => setViewInstitutionAddress(e.target.value)}
+                />
+                <button onClick={getInstitutionDetails} disabled={loading || !connectedAccount}>
+                    {loading ? 'Fetching...' : 'Get Details'}
+                </button>
+                {fetchedInstitution && (
+                    <div className="institution-details">
+                        <p><strong>Address:</strong> {fetchedInstitution.institutionAddress}</p>
+                        <p><strong>Name:</strong> {fetchedInstitution.name}</p>
+                        <p><strong>Code:</strong> {fetchedInstitution.code}</p>
+                        <p><strong>Registered:</strong> {fetchedInstitution.isRegistered ? 'Yes' : 'No'}</p>
+                    </div>
+                )}
+            </section>
+        )}
+
+        {currentTab === 'store' && (
+          <section className="store-credential-section">
+            <h2>Store New Credential</h2>
+            <input type="text" placeholder="Student ID (e.g., 101)" value={studentId} onChange={(e) => setStudentId(e.target.value)} />
+            <input type="text" placeholder="School ID (e.g., 1001)" value={schoolId} onChange={(e) => setSchoolId(e.target.value)} />
+            <input type="text" placeholder="Student Name" value={studentName} onChange={(e) => setStudentName(e.target.value)} />
+            <label htmlFor="dateOfBirth">Date of Birth:</label>
+            <input type="date" id="dateOfBirth" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} />
+            <input type="text" placeholder="Issuing Institution Name (Must match registered name)" value={institutionName} onChange={(e) => setInstitutionName(e.target.value)} />
+            <input type="text" placeholder="Certificate Title (e.g., Bachelor of Engineering)" value={certificateTitle} onChange={(e) => setCertificateTitle(e.target.value)} />
+
+            <div className="file-upload-section">
+              <h3>Upload Document (PDF, Image, etc.):</h3>
+              <input type="file" onChange={handleFileChange} />
+              {fileUploadMessage && <p className="file-upload-message">{fileUploadMessage}</p>}
+              {selectedFile && <p>File Name: <strong>{selectedFile.name}</strong></p>}
+              {documentHash && <p>Calculated Hash (SHA256): <strong>{documentHash}</strong></p>}
+              {!ipfsCid && (
+                <button onClick={uploadDocumentToIPFS} disabled={loading || !selectedFile}>
+                  {loading ? 'Uploading to IPFS...' : 'Upload to IPFS (via Pinata)'}
+                </button>
+              )}
+              {ipfsCid && <p>IPFS Document: <a href={`https://gateway.pinata.cloud/ipfs/${ipfsCid}`} target="_blank" rel="noopener noreferrer"><strong>{ipfsCid}</strong></a></p>}
+            </div>
+
+            <label htmlFor="issueDate">Issue Date:</label>
+            <input type="date" id="issueDate" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+            <label htmlFor="expiryDate">Expiry Date (optional):</label>
+            <input type="date" id="expiryDate" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
+
+            <button onClick={storeCredential} disabled={loading || !connectedAccount || !ipfsCid}>
+              {loading ? 'Storing...' : 'Store Credential'}
+            </button>
+          </section>
+        )}
+
+        {currentTab === 'search' && (
+          <section className="search-credential-section">
+            <h2>Search Credential Details</h2>
+            <p>Search by Student ID and School ID:</p>
+            <input type="text" placeholder="Student ID" value={searchStudentId} onChange={(e) => setSearchStudentId(e.target.value)} />
+            <input type="text" placeholder="School ID" value={searchSchoolId} onChange={(e) => setSearchSchoolId(e.target.value)} />
+            <button onClick={searchCredential} disabled={loading || !connectedAccount}>
+              {loading ? 'Searching...' : 'Search Credential'}
+            </button>
+            
+            {fetchedCredential && (
+                <div className="credential-details">
+                    <h3>Credential Details:</h3>
+                    <p><strong>Student ID:</strong> {fetchedCredential.studentId}</p>
+                    <p><strong>School ID:</strong> {fetchedCredential.schoolId}</p>
+                    <p><strong>Student Name:</strong> {fetchedCredential.studentName}</p>
+                    <p><strong>Date of Birth:</strong> {fetchedCredential.dateOfBirth}</p>
+                    <p><strong>Institution:</strong> {fetchedCredential.institutionName}</p>
+                    <p><strong>Certificate:</strong> {fetchedCredential.certificateTitle}</p>
+                    <p><strong>Document Hash:</strong> {fetchedCredential.documentHash}</p>
+                    <p><strong>IPFS CID:</strong> <a href={`https://gateway.pinata.cloud/ipfs/${fetchedCredential.ipfsCid}`} target="_blank" rel="noopener noreferrer"><strong>{fetchedCredential.ipfsCid}</strong></a></p>
+                    <p><strong>Issue Date:</strong> {fetchedCredential.issueDate}</p>
+                    <p><strong>Expiry Date:</strong> {fetchedCredential.expiryDate}</p>
+                    <p><strong>Revoked:</strong> {fetchedCredential.isRevoked ? 'Yes' : 'No'}</p>
+                </div>
+            )}
+          </section>
+        )}
+
+        {currentTab === 'revoke' && (
+          <section className="revoke-credential-section">
+            <h2>Revoke Credential</h2>
+            <p>Revoke by Student ID and School ID:</p>
+            <input
+              type="text"
+              placeholder="Student ID to Revoke"
+              value={revokeStudentId}
+              onChange={(e) => setRevokeStudentId(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="School ID to Revoke"
+              value={revokeSchoolId}
+              onChange={(e) => setRevokeSchoolId(e.target.value)}
+            />
+            <button onClick={revokeCredential} disabled={loading || !connectedAccount}>
+              {loading ? 'Revoking...' : 'Revoke Credential'}
+            </button>
+          </section>
+        )}
+
+        {currentTab === 'verify' && (
+          <section className="verify-credential-section">
+            <h2>Verify Credential</h2>
+            <p>Verify by Student ID, School ID, and Document:</p>
+            <input
+              type="text"
+              placeholder="Student ID for Verification"
+              value={verifyStudentId}
+              onChange={(e) => setVerifyStudentId(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="School ID for Verification"
+              value={verifySchoolId}
+              onChange={(e) => setVerifySchoolId(e.target.value)}
+            />
+            <h3>Upload Document for Verification:</h3>
+            <input type="file" onChange={handleVerifyFileChange} />
+            {verifySelectedFile && <p>File Name: <strong>{verifySelectedFile.name}</strong></p>}
+            {verifyDocumentHash && <p>Calculated Hash (SHA256): <strong>{verifyDocumentHash}</strong></p>}
+            <button onClick={verifyCredential} disabled={loading || !connectedAccount || !verifyDocumentHash}>
+              {loading ? 'Verifying...' : 'Verify Credential'}
+            </button>
+            {verificationResult !== null && (
+              <div className="verification-status">
+                <p><strong>Overall Valid:</strong> <span className={verificationResult.isValid ? 'success-text' : 'error-text'}>{verificationResult.isValid ? 'Yes' : 'No'}</span></p>
+                <p><strong>Is Revoked:</strong> <span className={verificationResult.isRevoked ? 'error-text' : 'success-text'}>{verificationResult.isRevoked ? 'Yes' : 'No'}</span></p>
+                <p><strong>Is Expired:</strong> <span className={verificationResult.isExpired ? 'error-text' : 'success-text'}>{verificationResult.isExpired ? 'Yes' : 'No'}</span></p>
+              </div>
+            )}
+          </section>
+        )}
+      </main>
     </div>
   );
 }
