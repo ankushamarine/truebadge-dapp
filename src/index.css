@@ -1,0 +1,265 @@
+/* General styling */
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.6; /* Increased line height for better readability */
+  font-weight: 400;
+  color-scheme: light; /* Force light mode for better readability */
+  color: #212529; /* Dark text */
+  background-color: #f8f9fa; /* Light background */
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #007bff; /* Bootstrap primary color */
+  text-decoration: none;
+}
+a:hover {
+  color: #0056b3;
+  text-decoration: underline;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column; /* Align items vertically */
+  align-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+  padding: 20px; /* Add some padding around the body */
+  box-sizing: border-box; /* Ensure padding is inside the body */
+}
+
+h1 {
+  font-size: 2.5em; /* Slightly smaller and more modern */
+  line-height: 1.2;
+  margin-bottom: 20px;
+  color: #343a40; /* Darker heading color */
+}
+
+h2 {
+  font-size: 1.8em;
+  margin-top: 25px;
+  margin-bottom: 15px;
+  color: #343a40;
+}
+
+h3 {
+  font-size: 1.4em;
+  margin-top: 20px;
+  margin-bottom: 10px;
+  color: #495057;
+}
+
+p {
+  margin-bottom: 1rem;
+  color: #495057;
+}
+
+button {
+  border-radius: 5px;
+  border: 1px solid #ced4da; /* Light grey border */
+  padding: 0.7em 1.5em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #007bff; /* Primary button color */
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+button:hover {
+  background-color: #0056b3;
+  border-color: #0056b3;
+}
+button:focus,
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.5); /* Bootstrap focus style */
+}
+
+/* Custom styles for your dApp */
+.App-header {
+  text-align: center;
+  padding: 30px;
+  margin-bottom: 30px;
+  max-width: 700px;
+  background-color: #fff; /* White header background */
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.error-message {
+  color: #dc3545; /* Bootstrap danger color */
+  font-weight: bold;
+  margin-top: 10px;
+}
+
+.info-message {
+  color: #17a2b8; /* Bootstrap info color */
+  font-weight: bold;
+  margin-top: 10px;
+}
+
+.connect-button {
+  padding: 12px 24px;
+  font-size: 1.1em;
+  cursor: pointer;
+  background-color: #28a745; /* Bootstrap success color */
+  color: white;
+  border: none;
+  border-radius: 5px;
+  transition: background-color 0.2s ease;
+}
+
+.connect-button:hover {
+  background-color: #1e7e34;
+}
+
+.section-box {
+  border: 1px solid #ced4da; /* Light grey border */
+  padding: 25px;
+  margin-bottom: 20px;
+  border-radius: 8px;
+  background-color: #e9ecef; /* Light grey background */
+  text-align: left;
+  width: 100%; /* Make section boxes take full width within the header */
+  box-sizing: border-box;
+}
+
+.input-field {
+  width: calc(100% - 22px); /* Adjust for padding and border */
+  padding: 10px;
+  margin-bottom: 15px;
+  border-radius: 4px;
+  border: 1px solid #ced4da; /* Light grey border */
+  background-color: #fff; /* White input background */
+  color: #495057; /* Dark input text */
+  box-sizing: border-box;
+}
+
+.action-button {
+  background-color: #007bff; /* Primary action button color */
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  margin-top: 10px;
+}
+
+.action-button:hover {
+  background-color: #0056b3;
+}
+
+/* Adjustments for owner status */
+.owner-indicator {
+  color: #28a745; /* Green for owner */
+  font-weight: bold;
+  margin-top: 5px;
+}
+
+.not-owner-indicator {
+  color: #dc3545; /* Red for not owner */
+  font-weight: bold;
+  margin-top: 5px;
+}
+
+.institution-list {
+  list-style-type: none; /* Remove bullet points */
+  padding: 0;
+}
+
+.institution-item {
+  background-color: #f1f3f5; /* Slightly darker background for list items */
+  border: 1px solid #dee2e6; /* Light border */
+  border-radius: 5px;
+  padding: 15px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.institution-item p {
+  margin: 5px 0; /* Adjust spacing within list items */
+  color: #343a40; /* Ensure text is readable */
+}
+
+.institution-item p strong {
+  color: #007bff; /* Highlight labels */
+}
+
+.input-label {
+  display: block; /* Make label appear on its own line */
+  margin-bottom: 5px;
+  color: #495057; /* Darker text for labels */
+  font-size: 0.9em;
+  font-weight: bold;
+  text-align: left;
+}
+
+/* Tab Styling */
+.tabs-container {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap; /* Allow tabs to wrap on smaller screens */
+  margin-top: 20px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e9ecef;
+  width: 100%;
+}
+
+.tab-button {
+  background-color: #f1f3f5;
+  color: #495057;
+  border: none;
+  border-radius: 5px 5px 0 0;
+  padding: 10px 15px; /* Slightly adjusted padding for more tabs */
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  margin: 0 2px;
+  border-bottom: 2px solid transparent;
+  flex-shrink: 0; /* Prevent buttons from shrinking too much */
+}
+
+.tab-button:hover {
+  background-color: #e2e6ea;
+  color: #212529;
+}
+
+.tab-button.active {
+  background-color: #fff;
+  color: #007bff;
+  border-bottom: 2px solid #007bff;
+  box-shadow: 0 -2px 5px rgba(0,0,0,0.05);
+  z-index: 1;
+}
+
+.tab-content {
+  width: 100%;
+  padding-top: 10px;
+}
+
+/* NEW: Styles for Search/Verify Results */
+.search-result, .verify-result {
+  background-color: #f1f3f5;
+  border: 1px solid #dee2e6;
+  border-radius: 5px;
+  padding: 15px;
+  margin-top: 20px;
+  text-align: left;
+}
+
+.search-result h4, .verify-result h4 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: #007bff; /* Primary color for result headings */
+}
+
+.search-result p, .verify-result p {
+  margin: 5px 0;
+}
